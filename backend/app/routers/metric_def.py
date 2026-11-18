@@ -65,6 +65,19 @@ def export_entries(
         headers={"Content-Disposition": 'attachment; filename="metric_def.csv"'})
 
 
+@router.get("/freshness-links", response_model=PageResult[dict])
+def list_freshness_links(
+    metric_id: str | None = Query(default=None, description="按指标编号筛选"),
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=20, ge=1, le=200),
+) -> PageResult[dict]:
+    """读取数据滞后告警里的指标编号，并核对统计粒度和时间窗口；必须声明在 /{entry_id} 之前。"""
+    links = service.list_freshness_links(metric_id=metric_id)
+    total = len(links)
+    start = (page - 1) * size
+    return PageResult(items=links[start:start + size], total=total, page=page, size=size)
+
+
 @router.get("/{entry_id}", response_model=dict)
 def get_entry(entry_id: int) -> dict:
     """读取单条指标定义明细；不存在时给出可读的错误说明。"""

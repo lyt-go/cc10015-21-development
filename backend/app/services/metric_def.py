@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.services.data_freshness import ALERT_MODULE
 from app.store import store
 
 MODULE = "metric_def"
@@ -63,3 +64,40 @@ class MetricDefService:
         entry["pending"] = target != STATUS_ORDER[-1]
         entry["abnormal"] = action in NEGATIVE_ACTIONS
         return entry, f"指标定义已{action}"
+
+    def list_freshness_links(self, metric_id: str | None = None) -> list[dict[str, Any]]:
+        """读取数据滞后告警中的指标编号，核对统计粒度和时间窗口。
+
+        数据新鲜度模块只把指标编号写进告警快照，这里以指标定义为准做一致性核对：
+        告警上的统计粒度 / 时间窗口必须与指标定义一致，否则标记为口径不一致。
+        """
+        rows = store.rows(MODULE)
+        if metric_id:
+            rows = [row for row in rows if str(row.get("指标编号", "")) == metric_id]
+        links: list[dict[str, Any]] = []
+        for definition in rows:
+            code = str(definition.get("指标编号", "")).strip()
+            if not code:
+                continue
+            alerts = [
+                row for row in store.rows(ALERT_MODULE)
+                if str(row.get("指标编号", "")).strip() == code
+            ]
+            for alert in alerts:
+                granularity_ok = str(alert.get("统计粒度", "")) == str(definition.get("统计粒度", ""))
+                window_ok = str(alert.get("时间窗口", "")) == str(definition.get("时间窗口", ""))
+                links.append({
+                    "指标编号": code,
+                    "指标名称": definition.get("指标名称"),
+                    "统计粒度": definition.get("统计粒度"),
+                    "时间窗口": definition.get("时间窗口"),
+                    "告警编号": alert.get("告警编号"),
+                    "数据表名": alert.get("数据表名"),
+                    "告警统计粒度": alert.get("统计粒度"),
+                    "告警时间窗口": alert.get("时间窗口"),
+                    "粒度一致": granularity_ok,
+                    "窗口一致": window_ok,
+                    "口径一致": granularity_ok and window_ok,
+                })
+        links.sort(key=lambda item: (str(item.get("指标编号")), str(item.get("告警编号"))))
+        return links
